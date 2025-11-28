@@ -2,20 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Дозволи для Інтернету (необхідні для завантаження карт) -->
+    <!-- Дозволи для Інтернету (необхідні для передачі відео та перевірки IP) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Дозволи для кешування карт osmdroid -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Дозвіл на камеру знадобиться у майбутньому для захоплення відео -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Дозволи для геолокації -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- Дозвіл на нотифікації -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Вказуємо, що додаток використовує камеру, але вона не є жорсткою вимогою для встановлення (наприклад, для емуляторів) -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="true"

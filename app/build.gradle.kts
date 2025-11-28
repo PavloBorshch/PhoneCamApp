@@ -76,11 +76,14 @@ dependencies {
     implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
-
     val paging_version = "3.3.0"
     implementation("androidx.paging:paging-runtime:$paging_version")
     implementation("androidx.paging:paging-compose:$paging_version")
 
-    implementation("org.osmdroid:osmdroid-android:6.1.18")
+    // --- CAMERAX DEPENDENCIES ---
+    val camerax_version = "1.3.3" // Stable version
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
 }

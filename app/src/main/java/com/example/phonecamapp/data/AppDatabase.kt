@@ -21,7 +21,9 @@ data class SettingsEntity(
     val resolutionWidth: Int,
     val resolutionHeight: Int,
     val fps: Int,
-    val protocol: String
+    val protocol: String,
+    // Нове поле для збереження орієнтації
+    val isLandscape: Boolean = false
 )
 
 @Dao
@@ -57,7 +59,7 @@ interface LogDao {
     suspend fun clearLogs()
 }
 
-@Database(entities = [SettingsEntity::class, LogEntity::class], version = 2, exportSchema = false)
+@Database(entities = [SettingsEntity::class, LogEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun settingsDao(): SettingsDao
     abstract fun logDao(): LogDao
@@ -73,7 +75,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "phonecam_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration() // Дозволяє зміну схеми (додавання isLandscape) без крашу
                     .build()
                 INSTANCE = instance
                 instance

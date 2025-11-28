@@ -1,29 +1,30 @@
 package com.example.phonecamapp
 
 import android.Manifest
-import android.os.Build
+import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.Surface
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.border
+import androidx.camera.core.AspectRatio
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -31,33 +32,28 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.example.phonecamapp.data.WebcamRepository
 import com.example.phonecamapp.data.AppDatabase
 import com.example.phonecamapp.data.LogEntity
 import com.example.phonecamapp.network.RetrofitInstance
-import com.example.phonecamapp.ui.DashboardSection
-import com.example.phonecamapp.ui.MapScreen
 import com.example.phonecamapp.ui.theme.PhoneCamTheme
-import com.example.phonecamapp.worker.SyncWorker
 import kotlinx.coroutines.flow.collectLatest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 // Основна программа
 class MainActivity : ComponentActivity() {
@@ -65,28 +61,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // WorkManager (Фонова синхронізація)
-        setupBackgroundSync()
+        // Жорстка фіксація портретної орієнтації додатку
+        this.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         setContent {
             PhoneCamTheme(darkTheme = false) {
-                // Request Permission Logic
-                RequestNotificationPermission()
+                RequestCameraPermission()
 
                 val context = LocalContext.current
-                // Приводимо context до Application для ViewModelFactory
                 val application = context.applicationContext as android.app.Application
 
-                // Room Database
                 val database = AppDatabase.getDatabase(context)
                 val dao = database.settingsDao()
                 val logDao = database.logDao()
                 val api = RetrofitInstance.api
 
-                // Repository Pattern
                 val repository = remember { WebcamRepository(dao, logDao, api) }
-
-                //  ViewModel
                 val viewModel: WebcamViewModel = viewModel(
                     factory = WebcamViewModelFactory(application, repository)
                 )
@@ -97,29 +87,14 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun RequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val launcher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.RequestPermission(),
-                onResult = { isGranted ->
-                    // Можна додати логіку, якщо користувач відмовив
-                }
-            )
-            LaunchedEffect(Unit) {
-                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    private fun setupBackgroundSync() {
-        val syncRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
-            .build()
-
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "SyncPublicIp",
-            ExistingPeriodicWorkPolicy.KEEP,
-            syncRequest
+    fun RequestCameraPermission() {
+        val launcher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+            onResult = { }
         )
+        LaunchedEffect(Unit) {
+            launcher.launch(Manifest.permission.CAMERA)
+        }
     }
 }
 
@@ -130,23 +105,15 @@ data class ParameterItem(val label: String, val value: String)
 @Composable
 fun AppNavigation(viewModel: WebcamViewModel) {
     val navController = rememberNavController()
-    // StateFlow (Підписка на стан UI)
     val uiState by viewModel.uiState.collectAsState()
-
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // SharedFlow (Обробка одноразових подій)
     LaunchedEffect(key1 = true) {
         viewModel.eventFlow.collectLatest { message ->
-            snackbarHostState.showSnackbar(
-                message = message,
-                duration = SnackbarDuration.Short,
-                withDismissAction = true
-            )
+            snackbarHostState.showSnackbar(message = message, withDismissAction = true)
         }
     }
 
-    // Scaffold (Структура екрану)
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -162,26 +129,20 @@ fun AppNavigation(viewModel: WebcamViewModel) {
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("Головна") },
-                    selected = true,
+                    selected = navController.currentDestination?.route == "home",
                     onClick = { navController.navigate("home") }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                    label = { Text("Карта") },
-                    selected = false,
-                    onClick = { navController.navigate("map") }
                 )
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.List, contentDescription = null) },
                     label = { Text("Історія") },
-                    selected = false,
+                    selected = navController.currentDestination?.route == "history",
                     onClick = { navController.navigate("history") }
                 )
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                     label = { Text("Налаштування") },
-                    selected = false,
-                    onClick = { }
+                    selected = navController.currentDestination?.route == "settings",
+                    onClick = { navController.navigate("settings") }
                 )
             }
         }
@@ -195,175 +156,128 @@ fun AppNavigation(viewModel: WebcamViewModel) {
                 MainContent(
                     state = uiState,
                     onToggleStream = { viewModel.toggleStreaming() },
-                    onCheckController = { viewModel.checkControllerStatus() },
-                    onProtocolClick = { protocolName ->
-                        viewModel.updateProtocol(protocolName)
-                        navController.navigate("details/$protocolName")
-                    }
+                    onProtocolClick = { protocol -> viewModel.updateProtocol(protocol) },
+                    onSwitchCamera = { viewModel.toggleCameraLens() }
                 )
             }
-            composable("map") {
-                MapScreen(controllers = uiState.mapLocations)
-            }
-            composable("history") {
-                LogHistoryScreen(viewModel)
-            }
-            // Передача параметрів між екранами
-            composable(
-                route = "details/{protocolName}",
-                arguments = listOf(navArgument("protocolName") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val protocolName = backStackEntry.arguments?.getString("protocolName") ?: "Unknown"
-                ProtocolDetailScreen(
-                    protocolName = protocolName,
-                    onBack = { navController.popBackStack() }
+            composable("history") { LogHistoryScreen(viewModel) }
+            composable("settings") {
+                SettingsScreen(
+                    state = uiState,
+                    onOrientationChange = { isLandscape -> viewModel.toggleOrientation(isLandscape) }
                 )
             }
         }
     }
 }
 
-// Віртуалізація списків
+// === SCREEN: SETTINGS ===
 @Composable
-fun LogHistoryScreen(viewModel: WebcamViewModel) {
-    // collectAsLazyPagingItems - отримання даних зі спеціального Flow
-    val logItems = viewModel.logsPagingFlow.collectAsLazyPagingItems()
+fun SettingsScreen(
+    state: WebcamUiState,
+    onOrientationChange: (Boolean) -> Unit
+) {
+    val parametersList = listOf(
+        ParameterItem("Камера", state.cameraSettings.cameraName),
+        ParameterItem("Роздільна здатність", "${state.cameraSettings.width}x${state.cameraSettings.height}"),
+        ParameterItem("FPS", "${state.cameraSettings.fps}"),
+        ParameterItem("IP Адреса", state.publicIp)
+    )
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Налаштування камери", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
+        // --- Блок керування орієнтацією ---
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
-            Text("Історія подій", style = MaterialTheme.typography.headlineSmall)
-
-            IconButton(
-                onClick = { viewModel.clearLogs() }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Очистити історію",
-                    tint = MaterialTheme.colorScheme.error
+                Column {
+                    Text(
+                        text = "Орієнтація камери",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (state.isLandscape) "Горизонтальна (Landscape 16:9)" else "Вертикальна (Portrait 9:16)",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(
+                    checked = state.isLandscape,
+                    onCheckedChange = { onOrientationChange(it) }
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        Text("Технічні параметри", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Основа для списків
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(
-                count = logItems.itemCount,
-                key = { index -> logItems[index]?.id ?: index }
-            ) { index ->
-                val log = logItems[index]
-                if (log != null) {
-                    LogItemCard(log)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(parametersList) { item ->
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(item.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.value, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-fun LogItemCard(log: LogEntity) {
-    val date = Date(log.timestamp)
-    val format = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (log.type == "ERROR") Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = log.message, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    text = log.type,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (log.type == "ERROR") Color.Red else Color.Gray
-                )
-            }
-            Text(
-                text = format.format(date),
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-    }
-}
-
-// Основні компоненти UI
+// === SCREEN: HOME ===
 @Composable
 fun MainContent(
     state: WebcamUiState,
     onToggleStream: () -> Unit,
     onProtocolClick: (String) -> Unit,
-    onCheckController: () -> Unit,
+    onSwitchCamera: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // ЗАВДАННЯ 16: Анімація кольору при тривозі
-    val cardColor by animateColorAsState(
-        targetValue = if (state.isCriticalAlert) Color.Red else if (state.isStreaming) Color(0xFF2E7D32) else Color(0xFFC62828),
-        animationSpec = infiniteRepeatable(
-            animation = tween(500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "AlertAnimation"
-    )
-
-    val parametersList = listOf(
-        ParameterItem("Камера", state.cameraSettings.cameraName),
-        ParameterItem("Роздільна здатність", "${state.cameraSettings.width}x${state.cameraSettings.height}"),
-        ParameterItem("Кодек", "H.264 (AVC)"),
-        ParameterItem("Протокол", state.currentProtocol),
-        ParameterItem("FPS", "${state.currentFps}"),
-        ParameterItem("Бітрейт", state.formattedBitrate),
-        ParameterItem("Тривалість", state.connectionDuration),
-        ParameterItem("CPU Temp", "%.1f°C".format(state.cpuTemp)),
-        ParameterItem("Voltage", "%.1f V".format(state.inputVoltage))
-    )
     val protocols = listOf("RTSP", "HTTP", "MJPEG", "USB")
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-
-        // 1. Картка статусу
+        // Статус
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = cardColor)
+            colors = CardDefaults.cardColors(
+                containerColor = if (state.isStreaming) Color(0xFF2E7D32) else MaterialTheme.colorScheme.secondaryContainer
+            )
         ) {
             Column(
                 modifier = Modifier.padding(16.dp).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = when {
-                        state.isCriticalAlert -> "КРИТИЧНА ПОМИЛКА!"
-                        state.isStreaming -> "ТРАНСЛЯЦІЯ АКТИВНА"
-                        else -> "ТРАНСЛЯЦІЯ ЗУПИНЕНА"
-                    },
+                    text = if (state.isStreaming) "ТРАНСЛЯЦІЯ АКТИВНА" else "ТРАНСЛЯЦІЯ ЗУПИНЕНА",
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = if (state.isStreaming) Color.White else MaterialTheme.colorScheme.onSecondaryContainer
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                // Відображення Public IP з API
-                Text("Public IP: ${state.publicIp}", color = Color.White.copy(alpha = 0.9f))
                 if (state.isStreaming) {
-                    Text("Live Stream (WebSocket)", color = Color.White.copy(alpha = 0.9f))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "rtsp://${state.publicIp}:554/live",
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. Вибір протоколу
-        Text("Оберіть протокол:", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+        // Протоколи
+        Text("Протокол трансляції:", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(protocols) { protocol ->
                 SuggestionChip(
@@ -379,88 +293,29 @@ fun MainContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Моніторинг потоку", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-
-        // Scrollable Area
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 8.dp)
+        // ОБЛАСТЬ КАМЕРИ
+        // Використовуємо звичайний Box без Card, щоб прибрати чорні полоси (фон) та заокруглення
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
         ) {
-            // Діагностика
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Діагностика (JSON/XML)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            IconButton(onClick = onCheckController, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Оновити")
-                            }
-                        }
-                        Text(
-                            text = state.controllerStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            }
+            CameraPreviewScreen(
+                isFrontCamera = state.isFrontCamera,
+                isLandscape = state.isLandscape
+            )
 
-            // KPI Dashboard
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                // Передаємо alert state для підсвічування рамок
-                DashboardSection(state)
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Графік стабільності
-            if (state.isStreaming) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                // Червона рамка якщо бітрейт падає низько (логіка може бути розширена)
-                                if (state.currentBitrate < 2000 && state.currentBitrate > 0)
-                                    Modifier.border(2.dp, Color.Red, RoundedCornerShape(12.dp))
-                                else Modifier
-                            )
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Стабільність мережі (Live)", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                            com.example.phonecamapp.BitrateChart(
-                                dataPoints = state.bitrateHistory,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
-            // Список параметрів
-            items(parametersList) { item ->
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(item.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(item.value, fontWeight = FontWeight.Bold)
-                    }
-                }
+            FloatingActionButton(
+                onClick = onSwitchCamera,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Змінити камеру")
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Кнопка запуску
         Button(
             onClick = onToggleStream,
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -475,17 +330,94 @@ fun MainContent(
     }
 }
 
+// === CAMERA PREVIEW (FINAL FIX) ===
 @Composable
-fun ProtocolDetailScreen(protocolName: String, onBack: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(text = "Налаштування збережено!", color = Color(0xFF2E7D32))
+fun CameraPreviewScreen(
+    isFrontCamera: Boolean,
+    isLandscape: Boolean
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+
+    val cameraSelector = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+
+    AndroidView(
+        factory = { ctx ->
+            PreviewView(ctx).apply {
+                // Використовуємо TextureView (COMPATIBLE), щоб краще працювати з нестандартними ротаціями
+                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                scaleType = PreviewView.ScaleType.FIT_CENTER
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+        update = { previewView ->
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+            cameraProviderFuture.addListener({
+                val cameraProvider = cameraProviderFuture.get()
+
+                // 1. Орієнтація:
+                // Якщо Landscape, повертаємо на 90.
+                // Якщо Portrait, ставимо 0.
+                val targetRotation = if (isLandscape) Surface.ROTATION_90 else Surface.ROTATION_0
+
+                // 2. Співвідношення:
+                // Завжди вимагаємо 16:9. Завдяки targetRotation CameraX зрозуміє,
+                // чи це "широка" 16:9 (Landscape) чи "висока" 9:16 (Portrait).
+                val resolutionSelector = ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(AspectRatioStrategy(AspectRatio.RATIO_16_9, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                    .build()
+
+                val preview = Preview.Builder()
+                    .setTargetRotation(targetRotation)
+                    .setResolutionSelector(resolutionSelector)
+                    .build()
+                    .also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+
+                try {
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview
+                    )
+                } catch (exc: Exception) {
+                    // Log error
+                }
+            }, ContextCompat.getMainExecutor(context))
+        }
+    )
+}
+
+@Composable
+fun LogHistoryScreen(viewModel: WebcamViewModel) {
+    val logItems = viewModel.logsPagingFlow.collectAsLazyPagingItems()
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Історія подій", style = MaterialTheme.typography.headlineSmall)
+            IconButton(onClick = { viewModel.clearLogs() }) { Icon(Icons.Default.Delete, contentDescription = "Очистити", tint = MaterialTheme.colorScheme.error) }
+        }
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = protocolName, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Spacer(modifier = Modifier.height(32.dp))
-        Button(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Назад")
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(count = logItems.itemCount, key = { index -> logItems[index]?.id ?: index }) { index ->
+                logItems[index]?.let { LogItemCard(it) }
+            }
+        }
+    }
+}
+
+@Composable
+fun LogItemCard(log: LogEntity) {
+    val date = Date(log.timestamp)
+    val format = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = log.message, style = MaterialTheme.typography.bodyMedium)
+                Text(text = log.type, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
+            Text(text = format.format(date), style = MaterialTheme.typography.labelSmall)
         }
     }
 }
