@@ -9,13 +9,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.phonecam"
+    namespace = "com.example.phonecamapp"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.phonecam"
+        applicationId = "com.example.phonecamapp"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
