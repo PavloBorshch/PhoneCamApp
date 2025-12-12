@@ -27,9 +27,7 @@ data class WebcamUiState(
     val currentProtocol: String = "RTSP",
     val publicIp: String = "Завантаження...",
     val isFrontCamera: Boolean = false,
-    // Стан орієнтації: true = Horizontal (Landscape), false = Vertical (Portrait)
     val isLandscape: Boolean = false,
-    // Новий стан: чи заблокована орієнтація користувачем
     val isOrientationLocked: Boolean = false
 )
 
@@ -47,11 +45,13 @@ class WebcamViewModel(
     val logsPagingFlow: Flow<PagingData<LogEntity>> = repository.getPagedLogs()
         .cachedIn(viewModelScope)
 
+    // Додаємо змінну для відстеження точного кута (0-359)
+    var currentDeviceRotation: Int = 0
+        private set
+
     init {
         loadSettings()
         fetchPublicIp()
-
-        // Встановлюємо ID користувача для Crashlytics
         FirebaseCrashlytics.getInstance().setCustomKey("AppStarted", true)
     }
 
@@ -74,7 +74,6 @@ class WebcamViewModel(
                             cameraName = savedSettings.cameraName
                         ),
                         currentProtocol = savedSettings.protocol,
-                        // Завантажуємо останню відому орієнтацію
                         isLandscape = savedSettings.isLandscape
                     )}
                 } else {
@@ -100,19 +99,19 @@ class WebcamViewModel(
         }
     }
 
-    // Нова функція: блокування/розблокування орієнтації
     fun toggleOrientationLock() {
         _uiState.update { it.copy(isOrientationLocked = !it.isOrientationLocked) }
     }
 
-    // Нова функція: автоматичне оновлення орієнтації від сенсорів
     fun updateAutoOrientation(isDeviceLandscape: Boolean) {
-        // Оновлюємо тільки якщо орієнтація НЕ заблокована і вона фактично змінилась
         if (!_uiState.value.isOrientationLocked && _uiState.value.isLandscape != isDeviceLandscape) {
             _uiState.update { it.copy(isLandscape = isDeviceLandscape) }
-            // Не обов'язково зберігати кожну зміну в базу, але можна, якщо треба запам'ятати останній стан
-            // saveCurrentSettings()
         }
+    }
+
+    // Новий метод для оновлення точного кута
+    fun updateDeviceRotation(rotation: Int) {
+        currentDeviceRotation = rotation
     }
 
     fun updateProtocol(newProtocol: String) {
@@ -148,14 +147,21 @@ class WebcamViewModel(
     }
 
     private fun startStreaming() {
+        val isUsb = _uiState.value.currentProtocol == "USB"
         _uiState.update { it.copy(
             isStreaming = true,
-            cameraSettings = it.cameraSettings.copy(serverIp = it.publicIp)
+            cameraSettings = it.cameraSettings.copy(serverIp = if(isUsb) "localhost" else it.publicIp)
         )}
+
         viewModelScope.launch {
-            repository.addLog("Трансляцію розпочато")
-            // Запускаємо NSD Discovery на порту 554 (стандарт RTSP)
-            repository.startDiscovery(554)
+            if (isUsb) {
+                repository.addLog("Запуск TCP сервера (USB)...")
+                // Запускаємо TCP сервер на порту 8554
+                repository.startTcpServer(8554)
+            } else {
+                repository.addLog("Трансляцію RTSP розпочато")
+                repository.startDiscovery(554)
+            }
         }
     }
 
@@ -166,15 +172,21 @@ class WebcamViewModel(
         )}
         viewModelScope.launch {
             repository.addLog("Трансляцію зупинено")
-            // Зупиняємо NSD
             repository.stopDiscovery()
+            repository.stopTcpServer()
         }
     }
 
-    // Очистка при знищенні ViewModel
+    fun processFrame(frameData: ByteArray, rotation: Int) {
+        if (_uiState.value.isStreaming && _uiState.value.currentProtocol == "USB") {
+            repository.sendFrame(frameData, rotation)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         repository.stopDiscovery()
+        viewModelScope.launch { repository.stopTcpServer() }
     }
 }
 
