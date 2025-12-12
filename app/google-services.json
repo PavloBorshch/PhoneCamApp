@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "579463266706",
+    "project_id": "phonecam-749a1",
+    "storage_bucket": "phonecam-749a1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579463266706:android:c82aa2f48523c129d7014b",
+        "android_client_info": {
+          "package_name": "com.example.phonecamapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCtGfmUkGZMPWR5CfgXOU7SO76zpIYUUDU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

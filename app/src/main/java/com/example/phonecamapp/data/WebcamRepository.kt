@@ -4,13 +4,15 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.example.phonecamapp.network.IpApiService
+import com.example.phonecamapp.network.NsdServiceManager
 import kotlinx.coroutines.flow.Flow
 
 // Клас, що виступає посередником між даними
 class WebcamRepository(
     private val settingsDao: SettingsDao,
     private val logDao: LogDao,
-    private val apiService: IpApiService
+    private val apiService: IpApiService,
+    private val nsdManager: NsdServiceManager
 ) {
 
     val settingsFlow: Flow<SettingsEntity?> = settingsDao.getSettings()
@@ -41,5 +43,14 @@ class WebcamRepository(
         } catch (e: Exception) {
             "Офлайн режим"
         }
+    }
+
+    // --- NSD Methods ---
+    fun startDiscovery(port: Int) {
+        nsdManager.registerService(port)
+    }
+
+    fun stopDiscovery() {
+        nsdManager.tearDown()
     }
 }

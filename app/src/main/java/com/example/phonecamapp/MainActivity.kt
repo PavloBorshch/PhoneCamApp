@@ -49,6 +49,7 @@ import com.example.phonecamapp.data.WebcamRepository
 import com.example.phonecamapp.data.AppDatabase
 import com.example.phonecamapp.data.LogEntity
 import com.example.phonecamapp.network.RetrofitInstance
+import com.example.phonecamapp.network.NsdServiceManager
 import com.example.phonecamapp.ui.theme.PhoneCamTheme
 import kotlinx.coroutines.flow.collectLatest
 import java.text.SimpleDateFormat
@@ -76,7 +77,10 @@ class MainActivity : ComponentActivity() {
                 val logDao = database.logDao()
                 val api = RetrofitInstance.api
 
-                val repository = remember { WebcamRepository(dao, logDao, api) }
+                // Ініціалізація NSD Manager
+                val nsdManager = remember { NsdServiceManager(context) }
+
+                val repository = remember { WebcamRepository(dao, logDao, api, nsdManager) }
                 val viewModel: WebcamViewModel = viewModel(
                     factory = WebcamViewModelFactory(application, repository)
                 )
@@ -171,7 +175,7 @@ fun AppNavigation(viewModel: WebcamViewModel) {
     }
 }
 
-// === SCREEN: SETTINGS ===
+// SETTINGS SCREEN
 @Composable
 fun SettingsScreen(
     state: WebcamUiState,
@@ -188,7 +192,7 @@ fun SettingsScreen(
         Text("Налаштування камери", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- Блок керування орієнтацією ---
+        // Блок керування орієнтацією
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -235,7 +239,7 @@ fun SettingsScreen(
     }
 }
 
-// === SCREEN: HOME ===
+// HOME SCREEN
 @Composable
 fun MainContent(
     state: WebcamUiState,
@@ -294,7 +298,6 @@ fun MainContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ОБЛАСТЬ КАМЕРИ
-        // Використовуємо звичайний Box без Card, щоб прибрати чорні полоси (фон) та заокруглення
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -330,7 +333,7 @@ fun MainContent(
     }
 }
 
-// === CAMERA PREVIEW (FINAL FIX) ===
+// CAMERA PREVIEW
 @Composable
 fun CameraPreviewScreen(
     isFrontCamera: Boolean,
@@ -355,14 +358,13 @@ fun CameraPreviewScreen(
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
 
-                // 1. Орієнтація:
+                // Орієнтація
                 // Якщо Landscape, повертаємо на 90.
                 // Якщо Portrait, ставимо 0.
                 val targetRotation = if (isLandscape) Surface.ROTATION_90 else Surface.ROTATION_0
 
-                // 2. Співвідношення:
-                // Завжди вимагаємо 16:9. Завдяки targetRotation CameraX зрозуміє,
-                // чи це "широка" 16:9 (Landscape) чи "висока" 9:16 (Portrait).
+                // Співвідношення
+                // Завжди вимагаємо 16:9
                 val resolutionSelector = ResolutionSelector.Builder()
                     .setAspectRatioStrategy(AspectRatioStrategy(AspectRatio.RATIO_16_9, AspectRatioStrategy.FALLBACK_RULE_AUTO))
                     .build()

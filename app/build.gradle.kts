@@ -6,6 +6,9 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.21-1.0.25"
 
     id("org.jetbrains.kotlin.plugin.serialization") version "2.0.21"
+
+    id("com.google.gms.google-services") version "4.4.1"
+    id("com.google.firebase.crashlytics") version "2.9.9"
 }
 
 android {
@@ -80,10 +83,13 @@ dependencies {
     implementation("androidx.paging:paging-runtime:$paging_version")
     implementation("androidx.paging:paging-compose:$paging_version")
 
-    // --- CAMERAX DEPENDENCIES ---
-    val camerax_version = "1.3.3" // Stable version
+    val camerax_version = "1.3.3"
     implementation("androidx.camera:camera-core:${camerax_version}")
     implementation("androidx.camera:camera-camera2:${camerax_version}")
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-view:${camerax_version}")
+
+    implementation(platform("com.google.firebase:firebase-bom:32.7.4"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-crashlytics")
 }

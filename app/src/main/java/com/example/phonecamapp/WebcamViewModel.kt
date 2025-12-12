@@ -10,6 +10,7 @@ import androidx.paging.cachedIn
 import com.example.phonecamapp.data.WebcamRepository
 import com.example.phonecamapp.data.LogEntity
 import com.example.phonecamapp.data.SettingsEntity
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +48,9 @@ class WebcamViewModel(
     init {
         loadSettings()
         fetchPublicIp()
+
+        // Встановлюємо ID користувача для Crashlytics
+        FirebaseCrashlytics.getInstance().setCustomKey("AppStarted", true)
     }
 
     private fun fetchPublicIp() {
@@ -96,11 +100,7 @@ class WebcamViewModel(
 
     // Функція для зміни орієнтації
     fun toggleOrientation(isLandscape: Boolean) {
-        // Змінюємо ширину/висоту місцями для коректності налаштувань, якщо треба
-        // Але головне - прапорець isLandscape
-        _uiState.update {
-            it.copy(isLandscape = isLandscape)
-        }
+        _uiState.update { it.copy(isLandscape = isLandscape) }
         saveCurrentSettings()
         viewModelScope.launch {
             val mode = if (isLandscape) "Горизонтальний (Landscape)" else "Вертикальний (Portrait)"
@@ -145,7 +145,11 @@ class WebcamViewModel(
             isStreaming = true,
             cameraSettings = it.cameraSettings.copy(serverIp = it.publicIp)
         )}
-        viewModelScope.launch { repository.addLog("Трансляцію розпочато") }
+        viewModelScope.launch {
+            repository.addLog("Трансляцію розпочато")
+            // Запускаємо NSD Discovery на порту 554 (стандарт RTSP)
+            repository.startDiscovery(554)
+        }
     }
 
     private fun stopStreaming() {
@@ -153,7 +157,17 @@ class WebcamViewModel(
             isStreaming = false,
             cameraSettings = it.cameraSettings.copy(serverIp = null)
         )}
-        viewModelScope.launch { repository.addLog("Трансляцію зупинено") }
+        viewModelScope.launch {
+            repository.addLog("Трансляцію зупинено")
+            // Зупиняємо NSD
+            repository.stopDiscovery()
+        }
+    }
+
+    // Очистка при знищенні ViewModel
+    override fun onCleared() {
+        super.onCleared()
+        repository.stopDiscovery()
     }
 }
 
