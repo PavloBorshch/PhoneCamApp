@@ -3,6 +3,7 @@ package com.example.phonecamapp
 import android.Manifest
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -85,6 +88,26 @@ class MainActivity : ComponentActivity() {
                     factory = WebcamViewModelFactory(application, repository)
                 )
 
+                // Додаємо слухач орієнтації для автоматичного повороту камери
+                val orientationEventListener = remember {
+                    object : OrientationEventListener(context) {
+                        override fun onOrientationChanged(orientation: Int) {
+                            if (orientation == ORIENTATION_UNKNOWN) return
+                            // Логіка визначення Landscape (горизонтально)
+                            // Зазвичай Landscape це 90 або 270 градусів (+- поріг)
+                            val isLandscape = (orientation in 45..135) || (orientation in 225..315)
+                            viewModel.updateAutoOrientation(isLandscape)
+                        }
+                    }
+                }
+
+                DisposableEffect(Unit) {
+                    orientationEventListener.enable()
+                    onDispose {
+                        orientationEventListener.disable()
+                    }
+                }
+
                 AppNavigation(viewModel)
             }
         }
@@ -120,14 +143,7 @@ fun AppNavigation(viewModel: WebcamViewModel) {
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Webcam Controller") },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        },
+        // TopBar видалено для збільшення простору
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
@@ -161,14 +177,14 @@ fun AppNavigation(viewModel: WebcamViewModel) {
                     state = uiState,
                     onToggleStream = { viewModel.toggleStreaming() },
                     onProtocolClick = { protocol -> viewModel.updateProtocol(protocol) },
-                    onSwitchCamera = { viewModel.toggleCameraLens() }
+                    onSwitchCamera = { viewModel.toggleCameraLens() },
+                    onToggleLock = { viewModel.toggleOrientationLock() }
                 )
             }
             composable("history") { LogHistoryScreen(viewModel) }
             composable("settings") {
                 SettingsScreen(
-                    state = uiState,
-                    onOrientationChange = { isLandscape -> viewModel.toggleOrientation(isLandscape) }
+                    state = uiState
                 )
             }
         }
@@ -178,8 +194,7 @@ fun AppNavigation(viewModel: WebcamViewModel) {
 // SETTINGS SCREEN
 @Composable
 fun SettingsScreen(
-    state: WebcamUiState,
-    onOrientationChange: (Boolean) -> Unit
+    state: WebcamUiState
 ) {
     val parametersList = listOf(
         ParameterItem("Камера", state.cameraSettings.cameraName),
@@ -192,37 +207,8 @@ fun SettingsScreen(
         Text("Налаштування камери", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Блок керування орієнтацією
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Орієнтація камери",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = if (state.isLandscape) "Горизонтальна (Landscape 16:9)" else "Вертикальна (Portrait 9:16)",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(
-                    checked = state.isLandscape,
-                    onCheckedChange = { onOrientationChange(it) }
-                )
-            }
-        }
+        // Блок керування орієнтацією ВИДАЛЕНО (тепер автоматично + кнопка блокування на головній)
 
-        Spacer(modifier = Modifier.height(16.dp))
         Text("Технічні параметри", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -246,10 +232,9 @@ fun MainContent(
     onToggleStream: () -> Unit,
     onProtocolClick: (String) -> Unit,
     onSwitchCamera: () -> Unit,
+    onToggleLock: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val protocols = listOf("RTSP", "HTTP", "MJPEG", "USB")
-
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         // Статус
         Card(
@@ -267,7 +252,7 @@ fun MainContent(
                     fontWeight = FontWeight.Bold,
                     color = if (state.isStreaming) Color.White else MaterialTheme.colorScheme.onSecondaryContainer
                 )
-                if (state.isStreaming) {
+                if (state.isStreaming && state.currentProtocol != "USB") {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "rtsp://${state.publicIp}:554/live",
@@ -280,18 +265,37 @@ fun MainContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Протоколи
-        Text("Протокол трансляції:", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(protocols) { protocol ->
-                SuggestionChip(
-                    onClick = { onProtocolClick(protocol) },
-                    label = { Text(protocol) },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = if (protocol == state.currentProtocol)
-                            MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                    )
-                )
+        // Кнопки вибору режиму: Мережа та USB
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Кнопка МЕРЕЖА (RTSP)
+            Button(
+                onClick = { onProtocolClick("RTSP") },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    // Якщо активний НЕ USB (значить RTSP), то підсвічуємо
+                    containerColor = if (state.currentProtocol != "USB") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (state.currentProtocol != "USB") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                // Іконка видалена, як просили
+                Text("Мережа")
+            }
+
+            // Кнопка USB
+            Button(
+                onClick = { onProtocolClick("USB") },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (state.currentProtocol == "USB") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (state.currentProtocol == "USB") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("USB")
             }
         }
 
@@ -308,12 +312,26 @@ fun MainContent(
                 isLandscape = state.isLandscape
             )
 
+            // Кнопка зміни камери (Правий нижній кут)
             FloatingActionButton(
                 onClick = onSwitchCamera,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = "Змінити камеру")
+            }
+
+            // Кнопка блокування орієнтації (Правий ВЕРХНІЙ кут)
+            SmallFloatingActionButton(
+                onClick = onToggleLock,
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                containerColor = if (state.isOrientationLocked) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Icon(
+                    imageVector = if (state.isOrientationLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = "Заблокувати орієнтацію",
+                    tint = if (state.isOrientationLocked) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 

@@ -28,7 +28,9 @@ data class WebcamUiState(
     val publicIp: String = "Завантаження...",
     val isFrontCamera: Boolean = false,
     // Стан орієнтації: true = Horizontal (Landscape), false = Vertical (Portrait)
-    val isLandscape: Boolean = false
+    val isLandscape: Boolean = false,
+    // Новий стан: чи заблокована орієнтація користувачем
+    val isOrientationLocked: Boolean = false
 )
 
 class WebcamViewModel(
@@ -72,7 +74,7 @@ class WebcamViewModel(
                             cameraName = savedSettings.cameraName
                         ),
                         currentProtocol = savedSettings.protocol,
-                        // Завантажуємо збережену орієнтацію
+                        // Завантажуємо останню відому орієнтацію
                         isLandscape = savedSettings.isLandscape
                     )}
                 } else {
@@ -98,13 +100,18 @@ class WebcamViewModel(
         }
     }
 
-    // Функція для зміни орієнтації
-    fun toggleOrientation(isLandscape: Boolean) {
-        _uiState.update { it.copy(isLandscape = isLandscape) }
-        saveCurrentSettings()
-        viewModelScope.launch {
-            val mode = if (isLandscape) "Горизонтальний (Landscape)" else "Вертикальний (Portrait)"
-            repository.addLog("Орієнтацію змінено: $mode")
+    // Нова функція: блокування/розблокування орієнтації
+    fun toggleOrientationLock() {
+        _uiState.update { it.copy(isOrientationLocked = !it.isOrientationLocked) }
+    }
+
+    // Нова функція: автоматичне оновлення орієнтації від сенсорів
+    fun updateAutoOrientation(isDeviceLandscape: Boolean) {
+        // Оновлюємо тільки якщо орієнтація НЕ заблокована і вона фактично змінилась
+        if (!_uiState.value.isOrientationLocked && _uiState.value.isLandscape != isDeviceLandscape) {
+            _uiState.update { it.copy(isLandscape = isDeviceLandscape) }
+            // Не обов'язково зберігати кожну зміну в базу, але можна, якщо треба запам'ятати останній стан
+            // saveCurrentSettings()
         }
     }
 
