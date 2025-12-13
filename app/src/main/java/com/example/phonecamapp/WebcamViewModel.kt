@@ -119,7 +119,8 @@ class WebcamViewModel(
         saveCurrentSettings()
         viewModelScope.launch {
             repository.addLog("Протокол змінено на $newProtocol")
-            _eventFlow.emit("Протокол змінено: $newProtocol")
+            // ВИДАЛЕНО: Випливаюче сповіщення про зміну протоколу
+            // _eventFlow.emit("Протокол змінено: $newProtocol")
         }
     }
 
@@ -154,13 +155,18 @@ class WebcamViewModel(
         )}
 
         viewModelScope.launch {
-            if (isUsb) {
-                repository.addLog("Запуск TCP сервера (USB)...")
-                // Запускаємо TCP сервер на порту 8554
-                repository.startTcpServer(8554)
+            // Тепер ми використовуємо TCP сервер для ОБОХ протоколів (USB та Мережа)
+            // Порт 8554 буде слухати як localhost (ADB), так і зовнішню IP (Wi-Fi)
+            repository.addLog("Запуск TCP сервера трансляції...")
+            repository.startTcpServer(8554)
+
+            if (!isUsb) {
+                // Виправлено: звертаємося до _uiState.value.publicIp замість it.publicIp
+                repository.addLog("Мережева трансляція: ${_uiState.value.publicIp}:8554")
+                // Для сумісності з іншими сканерами можемо залишити mDNS анонс
+                repository.startDiscovery(8554)
             } else {
-                repository.addLog("Трансляцію RTSP розпочато")
-                repository.startDiscovery(554)
+                repository.addLog("Режим USB: Очікування на localhost:8554")
             }
         }
     }
@@ -173,12 +179,14 @@ class WebcamViewModel(
         viewModelScope.launch {
             repository.addLog("Трансляцію зупинено")
             repository.stopDiscovery()
+            // Зупиняємо TCP сервер і відсилаємо сигнал завершення
             repository.stopTcpServer()
         }
     }
 
     fun processFrame(frameData: ByteArray, rotation: Int) {
-        if (_uiState.value.isStreaming && _uiState.value.currentProtocol == "USB") {
+        // Відправляємо кадри завжди, якщо стрім активний (незалежно від протоколу)
+        if (_uiState.value.isStreaming) {
             repository.sendFrame(frameData, rotation)
         }
     }

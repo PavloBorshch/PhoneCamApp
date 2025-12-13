@@ -12,6 +12,8 @@
     <!-- Вказуємо, що додаток використовує камеру, але вона не є жорсткою вимогою для встановлення (наприклад, для емуляторів) -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

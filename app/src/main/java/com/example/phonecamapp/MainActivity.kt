@@ -260,7 +260,8 @@ fun MainContent(
                 if (state.isStreaming) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (state.currentProtocol == "USB") "TCP (ADB Forward): 8554" else "rtsp://${state.publicIp}:554/live",
+                        // ЗМІНЕНО: Відображаємо лише IP, якщо не USB режим
+                        text = if (state.currentProtocol == "USB") "TCP (ADB Forward): 8554" else state.publicIp,
                         color = Color.White.copy(alpha = 0.9f),
                         style = MaterialTheme.typography.bodySmall
                     )
