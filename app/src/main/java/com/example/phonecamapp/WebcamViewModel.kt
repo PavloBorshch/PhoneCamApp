@@ -28,7 +28,9 @@ data class WebcamUiState(
     val publicIp: String = "Завантаження...",
     val isFrontCamera: Boolean = false,
     val isLandscape: Boolean = false,
-    val isOrientationLocked: Boolean = false
+    val isOrientationLocked: Boolean = false,
+    // Нове поле: запам'ятовує кут, на якому заблокували (0, 90, 180, 270)
+    val lockedOrientation: Int = 0
 )
 
 class WebcamViewModel(
@@ -45,7 +47,6 @@ class WebcamViewModel(
     val logsPagingFlow: Flow<PagingData<LogEntity>> = repository.getPagedLogs()
         .cachedIn(viewModelScope)
 
-    // Додаємо змінну для відстеження точного кута (0-359)
     var currentDeviceRotation: Int = 0
         private set
 
@@ -99,8 +100,16 @@ class WebcamViewModel(
         }
     }
 
+    // ВИПРАВЛЕНО: Тепер ми запам'ятовуємо поточний кут при блокуванні
     fun toggleOrientationLock() {
-        _uiState.update { it.copy(isOrientationLocked = !it.isOrientationLocked) }
+        val shouldLock = !_uiState.value.isOrientationLocked
+        // Якщо блокуємо -> беремо поточний реальний кут. Якщо розблоковуємо -> скидаємо на 0 (хоча це не важливо)
+        val orientationToSave = if (shouldLock) currentDeviceRotation else 0
+
+        _uiState.update { it.copy(
+            isOrientationLocked = shouldLock,
+            lockedOrientation = orientationToSave
+        ) }
     }
 
     fun updateAutoOrientation(isDeviceLandscape: Boolean) {
@@ -109,7 +118,6 @@ class WebcamViewModel(
         }
     }
 
-    // Новий метод для оновлення точного кута
     fun updateDeviceRotation(rotation: Int) {
         currentDeviceRotation = rotation
     }
@@ -119,8 +127,6 @@ class WebcamViewModel(
         saveCurrentSettings()
         viewModelScope.launch {
             repository.addLog("Протокол змінено на $newProtocol")
-            // ВИДАЛЕНО: Випливаюче сповіщення про зміну протоколу
-            // _eventFlow.emit("Протокол змінено: $newProtocol")
         }
     }
 
@@ -155,18 +161,14 @@ class WebcamViewModel(
         )}
 
         viewModelScope.launch {
-            // Тепер ми використовуємо TCP сервер для ОБОХ протоколів (USB та Мережа)
-            // Порт 8554 буде слухати як localhost (ADB), так і зовнішню IP (Wi-Fi)
-            repository.addLog("Запуск TCP сервера трансляції...")
-            repository.startTcpServer(8554)
+            repository.addLog("Запуск серверів...")
+            repository.startTcpServer(videoPort = 8554, audioPort = 8555)
 
             if (!isUsb) {
-                // Виправлено: звертаємося до _uiState.value.publicIp замість it.publicIp
-                repository.addLog("Мережева трансляція: ${_uiState.value.publicIp}:8554")
-                // Для сумісності з іншими сканерами можемо залишити mDNS анонс
+                repository.addLog("Мережа: ${_uiState.value.publicIp}")
                 repository.startDiscovery(8554)
             } else {
-                repository.addLog("Режим USB: Очікування на localhost:8554")
+                repository.addLog("USB: localhost:8554")
             }
         }
     }
@@ -177,15 +179,12 @@ class WebcamViewModel(
             cameraSettings = it.cameraSettings.copy(serverIp = null)
         )}
         viewModelScope.launch {
-            repository.addLog("Трансляцію зупинено")
             repository.stopDiscovery()
-            // Зупиняємо TCP сервер і відсилаємо сигнал завершення
             repository.stopTcpServer()
         }
     }
 
     fun processFrame(frameData: ByteArray, rotation: Int) {
-        // Відправляємо кадри завжди, якщо стрім активний (незалежно від протоколу)
         if (_uiState.value.isStreaming) {
             repository.sendFrame(frameData, rotation)
         }

@@ -10,11 +10,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
 
-// Клас, що виступає посередником між даними
 class WebcamRepository(
     private val settingsDao: SettingsDao,
     private val logDao: LogDao,
@@ -24,7 +25,9 @@ class WebcamRepository(
 
     val settingsFlow: Flow<SettingsEntity?> = settingsDao.getSettings()
 
-    // --- TCP Server Variables ---
+    private val audioStreamer = AudioStreamer()
+
+    // --- TCP Video Server Variables ---
     private var serverSocket: ServerSocket? = null
     private var clientSocket: Socket? = null
     private var outputStream: OutputStream? = null
@@ -49,16 +52,41 @@ class WebcamRepository(
         settingsDao.saveSettings(settings)
     }
 
-    suspend fun getPublicIp(): String {
-        return try {
-            val response = apiService.getPublicIp()
-            response.ip
+    // --- ВИПРАВЛЕНО: Отримання ЛОКАЛЬНОЇ IP-адреси ---
+    suspend fun getPublicIp(): String = withContext(Dispatchers.IO) {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+
+                // Фільтруємо: нас цікавлять не loopback (127.0.0.1) і тільки підняті інтерфейси
+                if (networkInterface.isLoopback || !networkInterface.isUp) continue
+
+                // Часто мобільний інтернет це rmnet, а wifi це wlan
+                // Але простіше взяти першу IPv4 адресу, яка не є локальною
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+
+                    // Беремо тільки IPv4 (не IPv6) і не 127.0.0.1
+                    if (address is Inet4Address && !address.isLoopbackAddress) {
+                        val ip = address.hostAddress
+                        // Додаткова перевірка, щоб це була схожа на локальну адресу
+                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172."))) {
+                            return@withContext ip
+                        }
+                        // Якщо не знайшли стандартну локальну, повернемо хоча б якусь IPv4 (наприклад, точка доступу)
+                        return@withContext ip ?: "Помилка IP"
+                    }
+                }
+            }
+            return@withContext "Немає мережі"
         } catch (e: Exception) {
-            "Офлайн режим"
+            e.printStackTrace()
+            return@withContext "Помилка IP"
         }
     }
 
-    // --- NSD Methods ---
     fun startDiscovery(port: Int) {
         nsdManager.registerService(port)
     }
@@ -67,13 +95,15 @@ class WebcamRepository(
         nsdManager.tearDown()
     }
 
-    // --- TCP Server Logic for USB Mode ---
-    suspend fun startTcpServer(port: Int) = withContext(Dispatchers.IO) {
+    // --- TCP Server Logic (VIDEO & AUDIO) ---
+    suspend fun startTcpServer(videoPort: Int, audioPort: Int) = withContext(Dispatchers.IO) {
+        audioStreamer.startServer(audioPort)
+
         if (isTcpServerRunning) return@withContext
         try {
-            serverSocket = ServerSocket(port)
+            serverSocket = ServerSocket(videoPort)
             isTcpServerRunning = true
-            addLog("TCP Сервер запущено на порту $port")
+            addLog("TCP Servers: Video=$videoPort, Audio=$audioPort")
             newClientLoop()
         } catch (e: Exception) {
             addLog("Помилка старту TCP: ${e.message}", "ERROR")
@@ -87,12 +117,11 @@ class WebcamRepository(
                 try {
                     val socket = serverSocket?.accept()
                     if (socket != null) {
-                        // Якщо вже є активний клієнт, закриваємо старого (проста логіка 1-до-1)
                         try { clientSocket?.close() } catch(e: Exception) {}
 
                         clientSocket = socket
                         outputStream = socket.getOutputStream()
-                        Log.d("TCP", "Client connected: ${socket.inetAddress}")
+                        Log.d("TCP", "Video Client connected: ${socket.inetAddress}")
                     }
                 } catch (e: Exception) {
                     if (isTcpServerRunning) Log.e("TCP", "Accept error", e)
@@ -102,8 +131,8 @@ class WebcamRepository(
     }
 
     suspend fun stopTcpServer() = withContext(Dispatchers.IO) {
-        // Відправка повідомлення про завершення (EOS - End Of Stream)
-        // Використовуємо size = 0 як сигнал
+        audioStreamer.stopServer()
+
         if (isTcpServerRunning && outputStream != null) {
             try {
                 synchronized(this@WebcamRepository) {
@@ -129,36 +158,27 @@ class WebcamRepository(
         outputStream = null
         clientSocket = null
         serverSocket = null
-        addLog("TCP Сервер зупинено")
+        addLog("Трансляцію зупинено")
     }
 
-    // ОНОВЛЕНО: Додано аргумент rotation
-    // Формат: [4 байти розміру][4 байти кута][байти зображення]
     fun sendFrame(jpegData: ByteArray, rotation: Int) {
         if (!isTcpServerRunning || outputStream == null) return
-
-        // Ігноруємо порожні кадри, щоб не плутати з EOS (size 0)
         if (jpegData.isEmpty()) return
 
         try {
             val size = jpegData.size
-
-            // 1. Розмір (4 байти)
             val sizeBytes = ByteBuffer.allocate(4).putInt(size).array()
-            // 2. Кут (4 байти)
             val rotBytes = ByteBuffer.allocate(4).putInt(rotation).array()
 
             synchronized(this) {
                 outputStream?.write(sizeBytes)
-                outputStream?.write(rotBytes) // Відправка кута
+                outputStream?.write(rotBytes)
                 outputStream?.write(jpegData)
                 outputStream?.flush()
             }
         } catch (e: Exception) {
             Log.e("TCP", "Send error: ${e.message}")
-            try {
-                clientSocket?.close()
-            } catch (_: Exception) {}
+            try { clientSocket?.close() } catch (_: Exception) {}
             clientSocket = null
             outputStream = null
         }

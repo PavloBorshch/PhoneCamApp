@@ -2,11 +2,7 @@ package com.example.phonecamapp
 
 import android.Manifest
 import android.content.pm.ActivityInfo
-import android.graphics.ImageFormat
-import android.graphics.Rect
-import android.graphics.YuvImage
 import android.os.Bundle
-import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.activity.ComponentActivity
@@ -64,6 +60,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
+import android.util.Log
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PhoneCamTheme(darkTheme = false) {
-                RequestCameraPermission()
+                RequestPermissions()
 
                 val context = LocalContext.current
                 val application = context.applicationContext as android.app.Application
@@ -91,25 +91,17 @@ class MainActivity : ComponentActivity() {
                     factory = WebcamViewModelFactory(application, repository)
                 )
 
-                // Слухач орієнтації
                 val orientationEventListener = remember {
                     object : OrientationEventListener(context) {
                         override fun onOrientationChanged(orientation: Int) {
                             if (orientation == ORIENTATION_UNKNOWN) return
-
-                            // Визначаємо точний кут повороту девайсу (0, 90, 180, 270)
-                            // 0 = Портрет
-                            // 90 = Лівий поворот (Top зліва)
-                            // 270 = Правий поворот (Top справа)
                             val exactRotation = when (orientation) {
-                                in 45..135 -> 270 // Reverse Landscape (Right Turn in sensor logic usually)
-                                in 135..225 -> 180 // Upside Down
-                                in 225..315 -> 90  // Landscape (Left Turn)
-                                else -> 0          // Portrait
+                                in 45..135 -> 270
+                                in 135..225 -> 180
+                                in 225..315 -> 90
+                                else -> 0
                             }
                             viewModel.updateDeviceRotation(exactRotation)
-
-                            // Для UI логіки (оновлення іконок і т.д.)
                             val isLandscape = (exactRotation == 90 || exactRotation == 270)
                             viewModel.updateAutoOrientation(isLandscape)
                         }
@@ -129,13 +121,16 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun RequestCameraPermission() {
+    fun RequestPermissions() {
         val launcher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission(),
+            contract = ActivityResultContracts.RequestMultiplePermissions(),
             onResult = { }
         )
         LaunchedEffect(Unit) {
-            launcher.launch(Manifest.permission.CAMERA)
+            launcher.launch(arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO
+            ))
         }
     }
 }
@@ -193,7 +188,7 @@ fun AppNavigation(viewModel: WebcamViewModel) {
                     onSwitchCamera = { viewModel.toggleCameraLens() },
                     onToggleLock = { viewModel.toggleOrientationLock() },
                     onFrameAvailable = { frame, rotation -> viewModel.processFrame(frame, rotation) },
-                    deviceRotation = viewModel.currentDeviceRotation // Передаємо поточний фізичний кут
+                    deviceRotation = viewModel.currentDeviceRotation
                 )
             }
             composable("history") { LogHistoryScreen(viewModel) }
@@ -260,8 +255,7 @@ fun MainContent(
                 if (state.isStreaming) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        // ЗМІНЕНО: Відображаємо лише IP, якщо не USB режим
-                        text = if (state.currentProtocol == "USB") "TCP (ADB Forward): 8554" else state.publicIp,
+                        text = if (state.currentProtocol == "USB") "TCP (ADB Forward): 8554/8555" else state.publicIp,
                         color = Color.White.copy(alpha = 0.9f),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -301,6 +295,7 @@ fun MainContent(
                 isLandscape = state.isLandscape,
                 deviceRotation = deviceRotation,
                 isOrientationLocked = state.isOrientationLocked,
+                lockedOrientation = state.lockedOrientation, // ПЕРЕДАЄМО ЗБЕРЕЖЕНИЙ КУТ
                 onFrameCaptured = onFrameAvailable
             )
 
@@ -345,6 +340,7 @@ fun CameraPreviewScreen(
     isLandscape: Boolean,
     deviceRotation: Int,
     isOrientationLocked: Boolean,
+    lockedOrientation: Int, // НОВИЙ ПАРАМЕТР
     onFrameCaptured: (ByteArray, Int) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -394,12 +390,10 @@ fun CameraPreviewScreen(
                             // 1. Отримуємо базовий кут сенсора (зазвичай 90 для задньої камери)
                             val sensorRotation = imageProxy.imageInfo.rotationDegrees
 
-                            // 2. Визначаємо фізичний поворот телефону
-                            val physicalRotation = if (isOrientationLocked) 0 else deviceRotation
+                            // 2. ВИПРАВЛЕНО: Якщо заблоковано, використовуємо збережений кут, інакше - поточний
+                            val physicalRotation = if (isOrientationLocked) lockedOrientation else deviceRotation
 
                             // 3. Розраховуємо кут, який треба відправити на ПК.
-                            // Формула: (Sensor - Device + 360) % 360
-                            // Це "віднімає" поворот девайсу від базового кута сенсора.
                             val rotationToSend = (sensorRotation - physicalRotation + 360) % 360
 
                             val jpegBytes = yuv420ToJpeg(imageProxy)
