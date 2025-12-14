@@ -5,13 +5,13 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
 
-// Клас для керування Network Service Discovery (NSD)
+// Клас для керування Network Service Discovery
 class NsdServiceManager(context: Context) {
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var serviceName = "PhoneCam"
-    private val serviceType = "_rtsp._tcp." // Тиндартний тип для RTSP сервісів
+    private val serviceType = "_rtsp._tcp."
 
     // Реєстрація сервісу при старті стріму
     fun registerService(port: Int) {

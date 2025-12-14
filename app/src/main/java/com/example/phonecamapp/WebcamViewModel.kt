@@ -29,7 +29,7 @@ data class WebcamUiState(
     val isFrontCamera: Boolean = false,
     val isLandscape: Boolean = false,
     val isOrientationLocked: Boolean = false,
-    // Нове поле: запам'ятовує кут, на якому заблокували (0, 90, 180, 270)
+    // Запам'ятовує кут, на якому заблокували (0, 90, 180, 270)
     val lockedOrientation: Int = 0
 )
 
@@ -100,10 +100,8 @@ class WebcamViewModel(
         }
     }
 
-    // ВИПРАВЛЕНО: Тепер ми запам'ятовуємо поточний кут при блокуванні
     fun toggleOrientationLock() {
         val shouldLock = !_uiState.value.isOrientationLocked
-        // Якщо блокуємо -> беремо поточний реальний кут. Якщо розблоковуємо -> скидаємо на 0 (хоча це не важливо)
         val orientationToSave = if (shouldLock) currentDeviceRotation else 0
 
         _uiState.update { it.copy(

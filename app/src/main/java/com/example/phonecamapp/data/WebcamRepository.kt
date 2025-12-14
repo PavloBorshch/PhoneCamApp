@@ -52,7 +52,7 @@ class WebcamRepository(
         settingsDao.saveSettings(settings)
     }
 
-    // --- ВИПРАВЛЕНО: Отримання ЛОКАЛЬНОЇ IP-адреси ---
+    // Отримання ЛОКАЛЬНОЇ IP-адреси ---
     suspend fun getPublicIp(): String = withContext(Dispatchers.IO) {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
@@ -62,20 +62,17 @@ class WebcamRepository(
                 // Фільтруємо: нас цікавлять не loopback (127.0.0.1) і тільки підняті інтерфейси
                 if (networkInterface.isLoopback || !networkInterface.isUp) continue
 
-                // Часто мобільний інтернет це rmnet, а wifi це wlan
-                // Але простіше взяти першу IPv4 адресу, яка не є локальною
                 val addresses = networkInterface.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
 
-                    // Беремо тільки IPv4 (не IPv6) і не 127.0.0.1
+                    // Беремо тільки IPv4
                     if (address is Inet4Address && !address.isLoopbackAddress) {
                         val ip = address.hostAddress
                         // Додаткова перевірка, щоб це була схожа на локальну адресу
                         if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172."))) {
                             return@withContext ip
                         }
-                        // Якщо не знайшли стандартну локальну, повернемо хоча б якусь IPv4 (наприклад, точка доступу)
                         return@withContext ip ?: "Помилка IP"
                     }
                 }

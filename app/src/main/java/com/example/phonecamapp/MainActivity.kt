@@ -340,7 +340,7 @@ fun CameraPreviewScreen(
     isLandscape: Boolean,
     deviceRotation: Int,
     isOrientationLocked: Boolean,
-    lockedOrientation: Int, // НОВИЙ ПАРАМЕТР
+    lockedOrientation: Int,
     onFrameCaptured: (ByteArray, Int) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -366,7 +366,7 @@ fun CameraPreviewScreen(
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
 
-                // ВАЖЛИВО: Фіксуємо ROTATION_0, щоб прев'ю на телефоні не стрибало
+                // Фіксуємо ROTATION_0, щоб прев'ю на телефоні не стрибало
                 val targetRotation = Surface.ROTATION_0
 
                 val resolutionSelector = ResolutionSelector.Builder()
